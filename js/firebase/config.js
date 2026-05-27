@@ -3,13 +3,13 @@ import { getFirestore } from "https://www.gstatic.com/firebasejs/11.7.1/firebase
 import { getAuth } from "https://www.gstatic.com/firebasejs/11.7.1/firebase-auth.js";
 
 const firebaseConfig = {
-  apiKey:            "PEGA_TU_NUEVO_API_KEY",
-  authDomain:        "PEGA_TU_NUEVO_PROJECT.firebaseapp.com",
-  projectId:         "PEGA_TU_NUEVO_PROJECT_ID",
-  storageBucket:     "PEGA_TU_NUEVO_PROJECT.firebasestorage.app",
-  messagingSenderId: "PEGA_TU_NUEVO_SENDER_ID",
-  appId:             "PEGA_TU_NUEVO_APP_ID"
-};
+  apiKey: "AIzaSyBmn1Hu69KrWM33dlhzLr3q6oDRwybiHeU",
+  authDomain: "quiniela-mundialista-746ab.firebaseapp.com",
+  projectId: "quiniela-mundialista-746ab",
+  storageBucket: "quiniela-mundialista-746ab.firebasestorage.app",
+  messagingSenderId: "720496448416",
+  appId: "1:720496448416:web:167b169f30ca848f6e8ac5"
+}
 
 const app = initializeApp(firebaseConfig);
 
