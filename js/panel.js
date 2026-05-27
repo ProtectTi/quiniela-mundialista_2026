@@ -28,6 +28,24 @@ import {
 import {
   animarNumero
 } from "./utils/animations.js";
+
+function resolveApiBaseUrl() {
+  const override = localStorage.getItem("quiniela_api_url");
+  if (override) {
+    return String(override).replace(/\/+$/, "");
+  }
+
+  const hostname = window.location.hostname;
+  const isLocal = hostname === "localhost" || hostname === "127.0.0.1";
+
+  if (isLocal) {
+    return "http://localhost:3100/api";
+  }
+
+  return `${window.location.origin}/api`;
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
 // ── ESCAPE HTML (prevenir XSS) ──
 function escapeHtml(str) {
   if (!str) return '';
@@ -188,6 +206,7 @@ window.cambiarSeccion = function(nombre, desdeMobil = false) {
   if (nombre === 'dashboard')  cargarDashboard();
   if (nombre === 'jugadores')  cargarJugadores();
   if (nombre === 'posiciones') cargarPosiciones();
+  if (nombre === 'ganadores')  cargarGanadores();
   if (nombre === 'grupos')     cargarGrupos();
   if (nombre === 'config')     cargarFechaLimiteConfig();
 };
@@ -2607,6 +2626,661 @@ async function renderPosicionesAdminRealtime() {
 // ══════════════════════════════
 // JUGADORES — REALTIME ADMIN
 // ══════════════════════════════
+// ══════════════════════════════
+// GANADORES — REALTIME ADMIN
+// ══════════════════════════════
+let unsubscribeGanadoresAdmin = [];
+let ganadoresAdminTimer = null;
+
+function detenerGanadoresAdminRealtime() {
+  unsubscribeGanadoresAdmin.forEach(unsub => {
+    if (typeof unsub === 'function') unsub();
+  });
+
+  unsubscribeGanadoresAdmin = [];
+}
+
+function normalizarTextoGanador(value) {
+  return String(value || '').trim();
+}
+
+function normalizarIdFiltro(value) {
+  return value === null || value === undefined || value === '' ? '' : String(value);
+}
+
+function esJugadorElegibleGanador(data = {}) {
+  const idEmployee = Number(data.idEmployee);
+  if (!Number.isFinite(idEmployee) || idEmployee <= 0) return false;
+  if (Number(data.employeeStatus ?? 0) !== 1) return false;
+
+  if (data.authMode === 'manual') return true;
+  if (data.authMode === 'intranet') return Number(data.userStatus ?? 0) === 1;
+
+  if (data.userStatus === null || data.userStatus === undefined || data.userStatus === '') {
+    return true;
+  }
+
+  return Number(data.userStatus) === 1;
+}
+
+function construirOpcionesGanadores(rows, idKey, labelKey) {
+  const items = new Map();
+
+  rows.forEach(row => {
+    const value = normalizarIdFiltro(row[idKey]);
+    const label = normalizarTextoGanador(row[labelKey]);
+    if (!value || !label) return;
+    if (!items.has(value)) items.set(value, label);
+  });
+
+  return Array.from(items.entries())
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'es', { sensitivity: 'base' }));
+}
+
+function cerrarGanadoresSelects(exceptId = '') {
+  document.querySelectorAll('.ganadores-select.open').forEach(node => {
+    if (exceptId && node.id === `${exceptId}-wrap`) return;
+    node.classList.remove('open');
+  });
+}
+
+function setGanadoresSelectValue(selectId, value, label, triggerRender = true) {
+  const input = document.getElementById(selectId);
+  const labelEl = document.getElementById(`${selectId}-label`);
+  if (!input || !labelEl) return;
+
+  input.value = normalizarIdFiltro(value);
+  labelEl.textContent = normalizarTextoGanador(label) || input.dataset.allLabel || 'Todos';
+  cerrarGanadoresSelects();
+
+  if (triggerRender) {
+    window.programarRenderGanadoresAdmin();
+  }
+}
+
+window.toggleGanadoresSelect = function(selectId) {
+  const wrap = document.getElementById(`${selectId}-wrap`);
+  if (!wrap) return;
+
+  const willOpen = !wrap.classList.contains('open');
+  cerrarGanadoresSelects(selectId);
+  wrap.classList.toggle('open', willOpen);
+};
+
+document.addEventListener('click', (event) => {
+  if (!event.target.closest('.ganadores-select')) {
+    cerrarGanadoresSelects();
+  }
+});
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    cerrarGanadoresSelects();
+  }
+});
+
+function setGanadoresSelectOptions(selectId, items, allLabel) {
+  const input = document.getElementById(selectId);
+  const menu = document.getElementById(`${selectId}-menu`);
+  const labelEl = document.getElementById(`${selectId}-label`);
+  if (!input || !menu || !labelEl) return;
+
+  const current = input.value;
+  input.dataset.allLabel = allLabel;
+  let html = `
+    <button type="button" class="ganadores-select-option${current === '' ? ' active' : ''}" data-value="">
+      ${escapeHtml(allLabel)}
+    </button>
+  `;
+  let found = current === '';
+  let currentLabel = allLabel;
+
+  items.forEach(item => {
+    const value = normalizarIdFiltro(item.value);
+    const selected = value === current;
+    if (selected) {
+      found = true;
+      currentLabel = item.label;
+    }
+    html += `
+      <button type="button" class="ganadores-select-option${selected ? ' active' : ''}" data-value="${escapeHtml(value)}" data-label="${escapeHtml(item.label)}">
+        ${escapeHtml(item.label)}
+      </button>
+    `;
+  });
+
+  menu.innerHTML = html;
+
+  if (!found) {
+    input.value = '';
+    currentLabel = allLabel;
+  }
+
+  labelEl.textContent = currentLabel;
+
+  menu.querySelectorAll('.ganadores-select-option').forEach(option => {
+    option.addEventListener('click', () => {
+      const value = option.dataset.value || '';
+      const label = option.dataset.label || allLabel;
+      setGanadoresSelectValue(selectId, value, label, true);
+    });
+  });
+}
+
+function getGanadoresFilters() {
+  return {
+    nombre: normalizarTextoGanador(document.getElementById('ganador-nombre')?.value).toLowerCase(),
+    idEmployee: normalizarTextoGanador(document.getElementById('ganador-idemployee')?.value),
+    countryId: normalizarIdFiltro(document.getElementById('ganador-country')?.value),
+    businessUnitId: normalizarIdFiltro(document.getElementById('ganador-bu')?.value),
+    branchId: normalizarIdFiltro(document.getElementById('ganador-branch')?.value)
+  };
+}
+
+function getGanadoresContexto(filters) {
+  const partes = [];
+
+  if (filters.countryId) {
+    const label = document.getElementById('ganador-country-label')?.textContent?.trim();
+    if (label) partes.push(`País: ${label}`);
+  }
+
+  if (filters.businessUnitId) {
+    const label = document.getElementById('ganador-bu-label')?.textContent?.trim();
+    if (label) partes.push(`Unidad: ${label}`);
+  }
+
+  if (filters.branchId) {
+    const label = document.getElementById('ganador-branch-label')?.textContent?.trim();
+    if (label) partes.push(`Sucursal: ${label}`);
+  }
+
+  if (filters.idEmployee) {
+    partes.push(`ID: ${filters.idEmployee}`);
+  }
+
+  if (filters.nombre) {
+    partes.push(`Nombre: ${filters.nombre}`);
+  }
+
+  return partes.length ? partes.join(' · ') : 'Universo completo de colaboradores activos';
+}
+
+function applyGanadoresFilters(rows, filters) {
+  return rows.filter(row => {
+    if (filters.countryId && normalizarIdFiltro(row.countryId) !== filters.countryId) return false;
+    if (filters.businessUnitId && normalizarIdFiltro(row.businessUnitId) !== filters.businessUnitId) return false;
+    if (filters.branchId && normalizarIdFiltro(row.branchId) !== filters.branchId) return false;
+    if (filters.idEmployee && normalizarIdFiltro(row.idEmployee) !== filters.idEmployee) return false;
+
+    if (filters.nombre) {
+      const nombre = normalizarTextoGanador(row.nombre).toLowerCase();
+      if (!nombre.includes(filters.nombre)) return false;
+    }
+
+    return true;
+  });
+}
+
+function buildGanadoresRanking(jugSnap, predSnap, resSnap, elimSnap) {
+  const jugadoresMap = new Map();
+  const resultadoGrupoMap = {};
+  const resultadoElimMap = {};
+
+  jugSnap.docs.forEach(docSnap => {
+    const data = docSnap.data();
+    if (!esJugadorElegibleGanador(data)) return;
+
+    jugadoresMap.set(docSnap.id, {
+      id: docSnap.id,
+      nombre: normalizarTextoGanador(data.nombre) || 'Sin nombre',
+      idEmployee: data.idEmployee ?? null,
+      countryId: data.countryId ?? null,
+      countryName: normalizarTextoGanador(data.countryName) || 'Sin país',
+      businessUnitId: data.businessUnitId ?? null,
+      businessUnitName: normalizarTextoGanador(data.businessUnitName) || 'Sin unidad',
+      branchId: data.branchId ?? null,
+      branchBusinessName: normalizarTextoGanador(data.branchBusinessName) || 'Sin sucursal',
+      aciertos: 0,
+      aciertosGrupo: 0,
+      aciertosElim: 0,
+      picks: 0
+    });
+  });
+
+  resSnap.docs.forEach(docSnap => {
+    const data = docSnap.data();
+    resultadoGrupoMap[(data.partidoId || '').toLowerCase()] = data.lev;
+  });
+
+  elimSnap.docs.forEach(docSnap => {
+    const data = docSnap.data();
+    if (data.ganador) {
+      resultadoElimMap[docSnap.id] = data.ganador;
+    }
+  });
+
+  predSnap.docs.forEach(docSnap => {
+    const data = docSnap.data();
+    const jugador = jugadoresMap.get(data.jugadorId);
+    if (!jugador) return;
+
+    jugador.picks++;
+
+    const resultadoGrupo = resultadoGrupoMap[(data.partidoId || '').toLowerCase()];
+    const resultadoElim = resultadoElimMap[data.partidoId];
+    const resultadoReal = resultadoGrupo || resultadoElim;
+
+    if (resultadoReal && resultadoReal === data.pick) {
+      jugador.aciertos++;
+
+      if (resultadoGrupo) jugador.aciertosGrupo++;
+      if (resultadoElim) jugador.aciertosElim++;
+    }
+  });
+
+  const totalResultados = resSnap.size + Object.keys(resultadoElimMap).length;
+  const jugadores = Array.from(jugadoresMap.values()).sort((a, b) => {
+    if (b.aciertos !== a.aciertos) return b.aciertos - a.aciertos;
+    if (b.picks !== a.picks) return b.picks - a.picks;
+    return a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' });
+  });
+
+  return { jugadores, totalResultados };
+}
+
+function renderGanadoresCards(ganadores, totalResultados) {
+  const container = document.getElementById('ganadores-cards');
+  if (!container) return;
+
+  if (!ganadores.length) {
+    container.innerHTML = `<div class="ganadores-empty">No hay co-ganadores con picks para el filtro actual.</div>`;
+    return;
+  }
+
+  container.innerHTML = ganadores.map(jugador => {
+    const porcentaje = totalResultados > 0
+      ? Math.round((jugador.aciertos / totalResultados) * 100)
+      : 0;
+
+    return `
+      <article class="ganadores-winner-card">
+        <div class="ganadores-winner-head">
+          <span class="ganadores-medal">🥇</span>
+          <div>
+            <div class="ganadores-name">${escapeHtml(jugador.nombre)}</div>
+            <div class="ganadores-winner-meta">
+              ID ${escapeHtml(jugador.idEmployee)} · ${escapeHtml(jugador.countryName)}
+            </div>
+          </div>
+        </div>
+
+        <div class="ganadores-winner-meta">
+          ${escapeHtml(jugador.businessUnitName)} · ${escapeHtml(jugador.branchBusinessName)}
+        </div>
+
+        <div class="ganadores-winner-stats">
+          <span>Aciertos: ${jugador.aciertos}/${totalResultados}</span>
+          <span>Picks: ${jugador.picks}</span>
+          <span>Efectividad: ${porcentaje}%</span>
+          <span>G:${jugador.aciertosGrupo} · E:${jugador.aciertosElim}</span>
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
+function renderGanadoresTable(rows, totalResultados) {
+  const tbody = document.getElementById('ganadores-tbody');
+  if (!tbody) return;
+
+  if (!rows.length) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="8" class="text-center py-4" style="color:var(--text-muted);">
+          No hay colaboradores elegibles para el filtro actual.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  let posicionActual = 0;
+  let aciertosPrevios = null;
+  let picksPrevios = null;
+
+  tbody.innerHTML = rows.map((jugador, index) => {
+    if (jugador.aciertos !== aciertosPrevios || jugador.picks !== picksPrevios) {
+      posicionActual = index + 1;
+      aciertosPrevios = jugador.aciertos;
+      picksPrevios = jugador.picks;
+    }
+
+    const porcentaje = totalResultados > 0
+      ? Math.round((jugador.aciertos / totalResultados) * 100)
+      : 0;
+
+    return `
+      <tr>
+        <td>${posicionActual}</td>
+        <td>
+          <div class="ganadores-table-name">${escapeHtml(jugador.nombre)}</div>
+          <small class="ganadores-table-meta">Picks: ${jugador.picks} · G:${jugador.aciertosGrupo} · E:${jugador.aciertosElim}</small>
+        </td>
+        <td>${escapeHtml(jugador.idEmployee)}</td>
+        <td>${escapeHtml(jugador.countryName)}</td>
+        <td>${escapeHtml(jugador.businessUnitName)}</td>
+        <td>${escapeHtml(jugador.branchBusinessName)}</td>
+        <td>${jugador.aciertos}/${totalResultados}</td>
+        <td>${porcentaje}%</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+window.programarRenderGanadoresAdmin = function() {
+  clearTimeout(ganadoresAdminTimer);
+  ganadoresAdminTimer = setTimeout(() => {
+    renderGanadoresAdminRealtime();
+  }, 180);
+};
+
+window.limpiarFiltrosGanadores = function() {
+  const nombre = document.getElementById('ganador-nombre');
+  const idEmployee = document.getElementById('ganador-idemployee');
+
+  if (nombre) nombre.value = '';
+  if (idEmployee) idEmployee.value = '';
+  setGanadoresSelectValue('ganador-country', '', document.getElementById('ganador-country')?.dataset.allLabel || 'Todos', false);
+  setGanadoresSelectValue('ganador-bu', '', document.getElementById('ganador-bu')?.dataset.allLabel || 'Todas', false);
+  setGanadoresSelectValue('ganador-branch', '', document.getElementById('ganador-branch')?.dataset.allLabel || 'Todas', false);
+
+  window.programarRenderGanadoresAdmin();
+};
+
+window.cargarGanadores = function() {
+  const tbody = document.getElementById('ganadores-tbody');
+  const cards = document.getElementById('ganadores-cards');
+
+  if (!tbody || !cards) return;
+
+  detenerGanadoresAdminRealtime();
+
+  cards.innerHTML = `<div class="ganadores-empty">Cargando ganadores...</div>`;
+  tbody.innerHTML = `
+    <tr>
+      <td colspan="8" class="text-center py-4" style="color:var(--text-muted);">
+        Cargando ranking...
+      </td>
+    </tr>
+  `;
+
+  unsubscribeGanadoresAdmin.push(
+    onSnapshot(collection(db, 'jugadores'), window.programarRenderGanadoresAdmin)
+  );
+
+  unsubscribeGanadoresAdmin.push(
+    onSnapshot(collection(db, 'predicciones'), window.programarRenderGanadoresAdmin)
+  );
+
+  unsubscribeGanadoresAdmin.push(
+    onSnapshot(collection(db, 'resultados'), window.programarRenderGanadoresAdmin)
+  );
+
+  unsubscribeGanadoresAdmin.push(
+    onSnapshot(collection(db, 'eliminatorias'), window.programarRenderGanadoresAdmin)
+  );
+
+  renderGanadoresAdminRealtime();
+};
+
+async function renderGanadoresAdminRealtime() {
+  const contextoEl = document.getElementById('ganadores-contexto');
+  const maximoEl = document.getElementById('ganadores-maximo');
+  const rankingSubEl = document.getElementById('ganadores-ranking-sub');
+
+  if (!contextoEl || !maximoEl || !rankingSubEl) return;
+
+  try {
+    const [jugSnap, predSnap, resSnap, elimSnap] = await Promise.all([
+      getDocs(collection(db, 'jugadores')),
+      getDocs(collection(db, 'predicciones')),
+      getDocs(collection(db, 'resultados')),
+      getDocs(collection(db, 'eliminatorias'))
+    ]);
+
+    const ranking = buildGanadoresRanking(jugSnap, predSnap, resSnap, elimSnap);
+    const universo = ranking.jugadores;
+
+    setGanadoresSelectOptions(
+      'ganador-country',
+      construirOpcionesGanadores(universo, 'countryId', 'countryName'),
+      'Todos'
+    );
+
+    let filters = getGanadoresFilters();
+    const universoPais = filters.countryId
+      ? universo.filter(j => normalizarIdFiltro(j.countryId) === filters.countryId)
+      : universo;
+
+    setGanadoresSelectOptions(
+      'ganador-bu',
+      construirOpcionesGanadores(universoPais, 'businessUnitId', 'businessUnitName'),
+      'Todas'
+    );
+
+    filters = getGanadoresFilters();
+    const universoSucursal = universoPais.filter(j => {
+      if (!filters.businessUnitId) return true;
+      return normalizarIdFiltro(j.businessUnitId) === filters.businessUnitId;
+    });
+
+    setGanadoresSelectOptions(
+      'ganador-branch',
+      construirOpcionesGanadores(universoSucursal, 'branchId', 'branchBusinessName'),
+      'Todas'
+    );
+
+    filters = getGanadoresFilters();
+
+    const filtrados = applyGanadoresFilters(universo, filters);
+    const candidatos = filtrados.filter(j => j.picks > 0);
+    const maxAciertos = (ranking.totalResultados > 0 && candidatos.length)
+      ? Math.max(...candidatos.map(j => j.aciertos))
+      : 0;
+    const coGanadores = (ranking.totalResultados > 0 && candidatos.length)
+      ? candidatos.filter(j => j.aciertos === maxAciertos)
+      : [];
+
+    const elegiblesEl = document.getElementById('ganador-stat-elegibles');
+    const conPicksEl = document.getElementById('ganador-stat-conpicks');
+    const resultadosEl = document.getElementById('ganador-stat-resultados');
+    const coganadoresEl = document.getElementById('ganador-stat-coganadores');
+
+    if (elegiblesEl) elegiblesEl.textContent = String(filtrados.length);
+    if (conPicksEl) conPicksEl.textContent = String(candidatos.length);
+    if (resultadosEl) resultadosEl.textContent = String(ranking.totalResultados);
+    if (coganadoresEl) coganadoresEl.textContent = String(coGanadores.length);
+
+    contextoEl.textContent = `${getGanadoresContexto(filters)} · ${filtrados.length} elegibles filtrados`;
+    maximoEl.textContent = ranking.totalResultados > 0
+      ? `Máximo de aciertos: ${maxAciertos}`
+      : 'Aún no hay resultados capturados';
+    rankingSubEl.textContent = candidatos.length
+      ? `Mostrando ${filtrados.length} colaboradores · ${candidatos.length} con picks`
+      : `Mostrando ${filtrados.length} colaboradores · sin picks válidos`;
+
+    renderGanadoresCards(coGanadores, ranking.totalResultados);
+    renderGanadoresTable(filtrados, ranking.totalResultados);
+  } catch(e) {
+    console.error('Error realtime ganadores admin:', e);
+
+    contextoEl.textContent = 'Error al cargar el universo filtrado.';
+    maximoEl.textContent = 'Máximo de aciertos: —';
+    rankingSubEl.textContent = 'Sin datos';
+
+    renderGanadoresCards([], 0);
+    renderGanadoresTable([], 0);
+  }
+}
+
+let ganadoresAdminPollerApi = null;
+let ganadoresAdminFetchSeq = 0;
+
+detenerGanadoresAdminRealtime = function() {
+  unsubscribeGanadoresAdmin.forEach(unsub => {
+    if (typeof unsub === 'function') unsub();
+  });
+
+  unsubscribeGanadoresAdmin = [];
+
+  if (ganadoresAdminPollerApi) {
+    clearInterval(ganadoresAdminPollerApi);
+    ganadoresAdminPollerApi = null;
+  }
+};
+
+async function fetchGanadoresAdminReport(forceRefresh = false) {
+  const filters = getGanadoresFilters();
+  const url = new URL(`${API_BASE_URL}/admin/winners`);
+
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value) {
+      url.searchParams.set(key, value);
+    }
+  });
+
+  if (forceRefresh) {
+    url.searchParams.set('refresh', '1');
+  }
+
+  const user = auth.currentUser;
+  if (!user) {
+    throw new Error('Sesion admin requerida.');
+  }
+
+  const idToken = await user.getIdToken();
+
+  let response;
+  try {
+    response = await fetch(url.toString(), {
+      headers: {
+        Authorization: `Bearer ${idToken}`
+      }
+    });
+  } catch {
+    throw new Error('No fue posible conectar con el backend administrativo.');
+  }
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.ok || !payload.report) {
+    throw new Error(payload.message || 'No fue posible cargar el ranking administrativo.');
+  }
+
+  return payload.report;
+}
+
+function aplicarEstadoSelectGanadores(selectId, value, label, allLabel) {
+  const input = document.getElementById(selectId);
+  const labelEl = document.getElementById(`${selectId}-label`);
+  if (!input || !labelEl) return;
+
+  input.dataset.allLabel = allLabel;
+  input.value = normalizarIdFiltro(value);
+  labelEl.textContent = normalizarTextoGanador(label) || allLabel;
+}
+
+window.programarRenderGanadoresAdmin = function() {
+  clearTimeout(ganadoresAdminTimer);
+  ganadoresAdminTimer = setTimeout(() => {
+    renderGanadoresAdminApi();
+  }, 180);
+};
+
+window.cargarGanadores = function() {
+  const tbody = document.getElementById('ganadores-tbody');
+  const cards = document.getElementById('ganadores-cards');
+
+  if (!tbody || !cards) return;
+
+  detenerGanadoresAdminRealtime();
+
+  cards.innerHTML = `<div class="ganadores-empty">Cargando ganadores...</div>`;
+  tbody.innerHTML = `
+    <tr>
+      <td colspan="8" class="text-center py-4" style="color:var(--text-muted);">
+        Cargando ranking...
+      </td>
+    </tr>
+  `;
+
+  renderGanadoresAdminApi(true);
+  ganadoresAdminPollerApi = setInterval(() => {
+    if (document.getElementById('sec-ganadores')?.classList.contains('active')) {
+      renderGanadoresAdminApi();
+    }
+  }, 30000);
+};
+
+async function renderGanadoresAdminApi(forceRefresh = false) {
+  const contextoEl = document.getElementById('ganadores-contexto');
+  const maximoEl = document.getElementById('ganadores-maximo');
+  const rankingSubEl = document.getElementById('ganadores-ranking-sub');
+
+  if (!contextoEl || !maximoEl || !rankingSubEl) return;
+
+  const requestSeq = ++ganadoresAdminFetchSeq;
+
+  try {
+    const report = await fetchGanadoresAdminReport(forceRefresh);
+    if (requestSeq !== ganadoresAdminFetchSeq) return;
+
+    const countryLabel = report.options.countries.find(item => item.value === report.filters.countryId)?.label || 'Todos';
+    const businessUnitLabel = report.options.businessUnits.find(item => item.value === report.filters.businessUnitId)?.label || 'Todas';
+    const branchLabel = report.options.branches.find(item => item.value === report.filters.branchId)?.label || 'Todas';
+
+    aplicarEstadoSelectGanadores('ganador-country', report.filters.countryId, countryLabel, 'Todos');
+    setGanadoresSelectOptions('ganador-country', report.options.countries, 'Todos');
+
+    aplicarEstadoSelectGanadores('ganador-bu', report.filters.businessUnitId, businessUnitLabel, 'Todas');
+    setGanadoresSelectOptions('ganador-bu', report.options.businessUnits, 'Todas');
+
+    aplicarEstadoSelectGanadores('ganador-branch', report.filters.branchId, branchLabel, 'Todas');
+    setGanadoresSelectOptions('ganador-branch', report.options.branches, 'Todas');
+
+    const elegiblesEl = document.getElementById('ganador-stat-elegibles');
+    const conPicksEl = document.getElementById('ganador-stat-conpicks');
+    const resultadosEl = document.getElementById('ganador-stat-resultados');
+    const coganadoresEl = document.getElementById('ganador-stat-coganadores');
+
+    if (elegiblesEl) elegiblesEl.textContent = String(report.stats.elegibles);
+    if (conPicksEl) conPicksEl.textContent = String(report.stats.conPicks);
+    if (resultadosEl) resultadosEl.textContent = String(report.stats.resultados);
+    if (coganadoresEl) coganadoresEl.textContent = String(report.stats.coGanadores);
+
+    contextoEl.textContent = `${report.labels.contexto} · ${report.stats.elegibles} elegibles filtrados`;
+    maximoEl.textContent = report.labels.maximo;
+    rankingSubEl.textContent = report.meta.isFinalCut
+      ? `${report.labels.ranking} · corte final`
+      : `${report.labels.ranking} · corte actual`;
+
+    renderGanadoresCards(report.coWinners, report.meta.totalResultados);
+    renderGanadoresTable(report.ranking, report.meta.totalResultados);
+  } catch(e) {
+    if (requestSeq !== ganadoresAdminFetchSeq) return;
+
+    console.error('Error admin ganadores:', e);
+
+    contextoEl.textContent = 'Error al cargar el universo filtrado.';
+    maximoEl.textContent = 'Maximo de aciertos: -';
+    rankingSubEl.textContent = 'Sin datos';
+
+    renderGanadoresCards([], 0);
+    renderGanadoresTable([], 0);
+  }
+}
+
 let unsubscribeJugadoresAdmin = [];
 let jugadoresAdminTimer = null;
 
@@ -2971,7 +3645,39 @@ function mostrarFechaActual(sufijo, fecha, hora) {
   if (el) el.textContent = `📅 Límite actual: ${fecha} a las ${hora} (CDMX)`;
 }
 
+function restaurarCardPasswordAdmin() {
+  const msg = document.getElementById('cfg-pass-msg');
+  if (!msg) return;
+
+  const card = msg.closest('.panel-card');
+  if (!card) return;
+  if (document.getElementById('cfg-pass-actual')) return;
+
+  card.innerHTML = `
+    <h6 class="config-card-title">Cambiar contraseña de admin</h6>
+    <div class="row g-3 align-items-end">
+      <div class="col-12 col-md-4">
+        <label class="config-label">Contraseña actual</label>
+        <input type="password" class="config-input" id="cfg-pass-actual" placeholder="Contraseña actual" maxlength="30" />
+      </div>
+      <div class="col-12 col-md-4">
+        <label class="config-label">Nueva contraseña</label>
+        <input type="password" class="config-input" id="cfg-pass1" placeholder="Mínimo 4 caracteres" maxlength="30" />
+      </div>
+      <div class="col-12 col-md-4">
+        <label class="config-label">Confirmar nueva</label>
+        <input type="password" class="config-input" id="cfg-pass2" placeholder="Repite la contraseña" maxlength="30" />
+      </div>
+      <div class="col-12">
+        <button class="btn-gold-config" onclick="cambiarPassword()">Guardar contraseña</button>
+      </div>
+    </div>
+    <div class="reset-msg mt-2" id="cfg-pass-msg" style="display:none;"></div>
+  `;
+}
+
 async function cargarFechaLimiteConfig() {
+  restaurarCardPasswordAdmin();
   try {
     const fasesLimite = [
       ['j1', 'jornada1'],
@@ -3044,7 +3750,8 @@ window.cambiarPassword = async function() {
   const passActual = document.getElementById('cfg-pass-actual')?.value || '';
   const pass1 = document.getElementById('cfg-pass1').value;
   const pass2 = document.getElementById('cfg-pass2').value;
-  const msg   = document.getElementById('cfg-pass-msg');
+  const msg = document.getElementById('cfg-pass-msg');
+  if (!msg) return;
 
   msg.style.display = 'block';
 
@@ -4124,3 +4831,5 @@ function mostrarMsgEditar(texto, tipo) {
   el.className = `reset-msg ${tipo}`;
   el.textContent = texto;
 }
+
+

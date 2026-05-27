@@ -43,6 +43,7 @@
       <button class="nav-tab-btn"        id="tab-partidos"   onclick="cambiarSeccion('partidos')">Partidos</button>
       <button class="nav-tab-btn"        id="tab-jugadores"  onclick="cambiarSeccion('jugadores')">Jugadores</button>
       <button class="nav-tab-btn"        id="tab-posiciones" onclick="cambiarSeccion('posiciones')">Posiciones</button>
+      <button class="nav-tab-btn"        id="tab-ganadores"  onclick="cambiarSeccion('ganadores')">Ganadores</button>
       <button class="nav-tab-btn"        id="tab-grupos"     onclick="cambiarSeccion('grupos')">Grupos</button>
       <button class="nav-tab-btn"        id="tab-config"     onclick="cambiarSeccion('config')">Config</button>
     </div>
@@ -60,6 +61,7 @@
     <button class="nav-tab-btn"        id="tab-m-partidos"   onclick="cambiarSeccion('partidos', true)">⚽ Partidos</button>
     <button class="nav-tab-btn"        id="tab-m-jugadores"  onclick="cambiarSeccion('jugadores', true)">👥 Jugadores</button>
     <button class="nav-tab-btn"        id="tab-m-posiciones" onclick="cambiarSeccion('posiciones', true)">🏆 Posiciones</button>
+    <button class="nav-tab-btn"        id="tab-m-ganadores"  onclick="cambiarSeccion('ganadores', true)">🥇 Ganadores</button>
     <button class="nav-tab-btn"        id="tab-m-grupos"     onclick="cambiarSeccion('grupos', true)">🌍 Grupos</button>
     <button class="nav-tab-btn"        id="tab-m-config"     onclick="cambiarSeccion('config', true)">⚙️ Config</button>
   </div>
@@ -258,6 +260,139 @@
       </div>
     </section>
 
+    <section class="seccion ganadores-layout" id="sec-ganadores">
+      <div class="container-fluid">
+        <h2 class="dashboard-title">Ganadores</h2>
+        <p class="dashboard-sub">Búsqueda administrativa de co-ganadores por país, unidad de negocio y sucursal</p>
+
+        <div class="panel-card ganadores-filtros-card mb-4">
+          <div class="ganadores-filters">
+            <div class="ganadores-filter">
+              <label class="config-label" for="ganador-nombre">Nombre</label>
+              <input class="config-input" id="ganador-nombre" type="text" placeholder="Buscar por nombre" oninput="programarRenderGanadoresAdmin()" />
+            </div>
+
+            <div class="ganadores-filter">
+              <label class="config-label" for="ganador-idemployee">ID empleado</label>
+              <input class="config-input" id="ganador-idemployee" type="text" inputmode="numeric" placeholder="Ej: 37590" oninput="programarRenderGanadoresAdmin()" />
+            </div>
+
+            <div class="ganadores-filter">
+              <label class="config-label" for="ganador-country">País</label>
+              <div class="ganadores-select" id="ganador-country-wrap">
+                <input type="hidden" id="ganador-country" data-all-label="Todos" value="" />
+                <button class="config-input ganadores-select-trigger" id="ganador-country-trigger" type="button" onclick="toggleGanadoresSelect('ganador-country')">
+                  <span id="ganador-country-label">Todos</span>
+                  <span class="ganadores-select-arrow">▾</span>
+                </button>
+                <div class="ganadores-select-menu" id="ganador-country-menu"></div>
+              </div>
+            </div>
+
+            <div class="ganadores-filter">
+              <label class="config-label" for="ganador-bu">Unidad de negocio</label>
+              <div class="ganadores-select" id="ganador-bu-wrap">
+                <input type="hidden" id="ganador-bu" data-all-label="Todas" value="" />
+                <button class="config-input ganadores-select-trigger" id="ganador-bu-trigger" type="button" onclick="toggleGanadoresSelect('ganador-bu')">
+                  <span id="ganador-bu-label">Todas</span>
+                  <span class="ganadores-select-arrow">▾</span>
+                </button>
+                <div class="ganadores-select-menu" id="ganador-bu-menu"></div>
+              </div>
+            </div>
+
+            <div class="ganadores-filter">
+              <label class="config-label" for="ganador-branch">Sucursal</label>
+              <div class="ganadores-select" id="ganador-branch-wrap">
+                <input type="hidden" id="ganador-branch" data-all-label="Todas" value="" />
+                <button class="config-input ganadores-select-trigger" id="ganador-branch-trigger" type="button" onclick="toggleGanadoresSelect('ganador-branch')">
+                  <span id="ganador-branch-label">Todas</span>
+                  <span class="ganadores-select-arrow">▾</span>
+                </button>
+                <div class="ganadores-select-menu" id="ganador-branch-menu"></div>
+              </div>
+            </div>
+
+            <div class="ganadores-filter ganadores-filter-actions">
+              <label class="config-label">&nbsp;</label>
+              <button class="btn-gold-config" onclick="limpiarFiltrosGanadores()">Limpiar filtros</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="row g-3 mb-4" id="ganadores-resumen">
+          <div class="col-6 col-md-3">
+            <div class="stat-card">
+              <div class="stat-number" id="ganador-stat-elegibles">0</div>
+              <div class="stat-label">Elegibles</div>
+            </div>
+          </div>
+          <div class="col-6 col-md-3">
+            <div class="stat-card">
+              <div class="stat-number" id="ganador-stat-conpicks">0</div>
+              <div class="stat-label">Con picks</div>
+            </div>
+          </div>
+          <div class="col-6 col-md-3">
+            <div class="stat-card">
+              <div class="stat-number" id="ganador-stat-resultados">0</div>
+              <div class="stat-label">Resultados</div>
+            </div>
+          </div>
+          <div class="col-6 col-md-3">
+            <div class="stat-card">
+              <div class="stat-number" id="ganador-stat-coganadores">0</div>
+              <div class="stat-label">Co-ganadores</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-card ganadores-destacados-card mb-4">
+          <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+            <div>
+              <div class="panel-card-title mb-1">Co-ganadores</div>
+              <div class="ganadores-sub" id="ganadores-contexto">Cargando universo filtrado...</div>
+            </div>
+            <div class="ganadores-sub" id="ganadores-maximo">Máximo de aciertos: 0</div>
+          </div>
+          <div id="ganadores-cards" class="ganadores-cards">
+            <div class="ganadores-empty">Cargando ganadores...</div>
+          </div>
+        </div>
+
+        <div class="panel-card ganadores-ranking-card">
+          <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+            <div class="panel-card-title">Ranking filtrado</div>
+            <div class="ganadores-sub" id="ganadores-ranking-sub">Sin datos</div>
+          </div>
+
+          <div class="table-responsive">
+            <table class="table table-dark table-hover align-middle jugadores-tabla">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Jugador</th>
+                  <th>ID empleado</th>
+                  <th>País</th>
+                  <th>Unidad</th>
+                  <th>Sucursal</th>
+                  <th>Aciertos</th>
+                  <th>Porcentaje</th>
+                </tr>
+              </thead>
+              <tbody id="ganadores-tbody">
+                <tr>
+                  <td colspan="8" class="text-center py-4" style="color:var(--text-muted);">
+                    Cargando ranking...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- GRUPOS -->
     <section class="seccion" id="sec-grupos">
       <div class="container-fluid">
@@ -287,26 +422,24 @@
     <section class="seccion" id="sec-config">
       <div class="container-fluid">
         <h2 class="dashboard-title">Configuración</h2>
-        <p class="dashboard-sub">Opciones del sistema</p>
-
-        <!-- Cambiar contraseña -->
+        <p class="dashboard-sub">Opciones del sistema</p>        <!-- Cambiar contrase�a -->
         <div class="panel-card mb-3">
-          <h6 class="config-card-title">Cambiar contraseña de admin</h6>
+          <h6 class="config-card-title">Cambiar contrase�a de admin</h6>
           <div class="row g-3 align-items-end">
             <div class="col-12 col-md-4">
-              <label class="config-label">Contraseña actual</label>
-              <input type="password" class="config-input" id="cfg-pass-actual" placeholder="Contraseña actual" maxlength="30" />
+              <label class="config-label">Contrase�a actual</label>
+              <input type="password" class="config-input" id="cfg-pass-actual" placeholder="Contrase�a actual" maxlength="30" />
             </div>
             <div class="col-12 col-md-4">
-              <label class="config-label">Nueva contraseña</label>
-              <input type="password" class="config-input" id="cfg-pass1" placeholder="Mínimo 4 caracteres" maxlength="30" />
+              <label class="config-label">Nueva contrase�a</label>
+              <input type="password" class="config-input" id="cfg-pass1" placeholder="M�nimo 4 caracteres" maxlength="30" />
             </div>
             <div class="col-12 col-md-4">
               <label class="config-label">Confirmar nueva</label>
-              <input type="password" class="config-input" id="cfg-pass2" placeholder="Repite la contraseña" maxlength="30" />
+              <input type="password" class="config-input" id="cfg-pass2" placeholder="Repite la contrase�a" maxlength="30" />
             </div>
             <div class="col-12">
-              <button class="btn-gold-config" onclick="cambiarPassword()">Guardar contraseña</button>
+              <button class="btn-gold-config" onclick="cambiarPassword()">Guardar contrase�a</button>
             </div>
           </div>
           <div class="reset-msg mt-2" id="cfg-pass-msg" style="display:none;"></div>
@@ -778,3 +911,4 @@
 
 </body>
 </html>
+
