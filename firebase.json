@@ -1,0 +1,21 @@
+{
+  "hosting": {
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      "firebase.example.json",
+      "**/.*",
+      "**/node_modules/**",
+      "backend/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/api/**",
+        "run": {
+          "serviceId": "quiniela-backend",
+          "region": "us-central1"
+        }
+      }
+    ]
+  }
+}

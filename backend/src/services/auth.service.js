@@ -7,31 +7,39 @@ import {
   FIND_USER_BY_USERNAME
 } from "../queries/auth.queries.js";
 import { comparePassword } from "../utils/passwords.js";
+import { validateProfileAgainstHostname } from "./tenant.service.js";
 
-function buildSession(profile) {
+function buildSession(profile, tenant) {
   return {
-    idEmployee: profile.id_employee,
-    idPerson: profile.id_person,
-    idUser: profile.id_user,
+    idEmployee: profile.idEmployee,
+    idPerson: profile.idPerson,
+    idUser: profile.idUser,
     username: profile.username,
-    fullName: profile.full_name,
+    fullName: profile.fullName,
     country: {
-      id: profile.id_country,
-      name: profile.country_name,
-      code: profile.country_code
+      id: profile.country?.id || null,
+      name: profile.country?.name || null,
+      code: profile.country?.code || null
     },
     businessUnit: {
-      id: profile.id_business_unit,
-      name: profile.business_unit_name,
-      code: profile.business_unit_code,
-      parentId: profile.parent_business_unit_id,
-      parentName: profile.parent_business_unit_name
+      id: profile.businessUnit?.id || null,
+      name: profile.businessUnit?.name || null,
+      code: profile.businessUnit?.code || null,
+      parentId: profile.businessUnit?.parentId || null,
+      parentName: profile.businessUnit?.parentName || null
     },
     branch: {
-      id: profile.id_branch,
-      businessName: profile.branch_business_name,
-      legalName: profile.branch_legal_name
-    }
+      id: profile.branch?.id || null,
+      businessName: profile.branch?.businessName || null,
+      legalName: profile.branch?.legalName || null
+    },
+    tenant: tenant
+      ? {
+          tenantId: tenant.tenantId,
+          brandName: tenant.brandName,
+          hostname: tenant.primaryHostname
+        }
+      : null
   };
 }
 
@@ -120,7 +128,7 @@ async function getCollaboratorProfileByEmployeeId(idEmployee) {
   return profileResult.recordset[0] || null;
 }
 
-export async function loginWithIntranetCredentials(username, password) {
+export async function loginWithIntranetCredentials(username, password, hostname = "") {
   const normalizedUsername = String(username || "").trim();
   const normalizedPassword = String(password || "");
 
@@ -154,8 +162,10 @@ export async function loginWithIntranetCredentials(username, password) {
   }
 
   const profile = normalizeProfile(profileRow);
-  const session = buildSession(profileRow);
+  const { tenant } = validateProfileAgainstHostname(profile, hostname);
+  profile.tenant = tenant;
 
+  const session = buildSession(profile, tenant);
   const token = jwt.sign(session, config.jwtSecret, {
     expiresIn: config.jwtExpiresIn
   });
@@ -166,7 +176,7 @@ export async function loginWithIntranetCredentials(username, password) {
   };
 }
 
-export async function getManualRegistrationProfile(idEmployee) {
+export async function getManualRegistrationProfile(idEmployee, hostname = "") {
   const parsedIdEmployee = Number(idEmployee);
   if (!Number.isInteger(parsedIdEmployee) || parsedIdEmployee <= 0) {
     throw new Error("El ID de empleado es inválido.");
@@ -178,8 +188,14 @@ export async function getManualRegistrationProfile(idEmployee) {
   }
 
   if (Number(profileRow.id_user || 0) > 0 && Number(profileRow.user_status) === 1) {
-    throw new Error("Este colaborador ya tiene usuario de intranet activo. Debe iniciar sesión con intranet.");
+    throw new Error(
+      "Este colaborador ya tiene usuario de intranet activo. Debe iniciar sesión con intranet."
+    );
   }
 
-  return normalizeProfile(profileRow);
+  const profile = normalizeProfile(profileRow);
+  const { tenant } = validateProfileAgainstHostname(profile, hostname);
+  profile.tenant = tenant;
+
+  return profile;
 }
