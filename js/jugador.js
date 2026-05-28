@@ -29,11 +29,22 @@ function resolveApiBaseUrl() {
   return `${window.location.origin}/api`;
 }
 
+function resolveTenantHostname() {
+  const override = localStorage.getItem("quiniela_tenant_host");
+  if (override) {
+    return String(override).trim().toLowerCase();
+  }
+
+  return String(window.location.hostname || "").trim().toLowerCase();
+}
+
 const API_BASE_URL = resolveApiBaseUrl();
+const TENANT_HOSTNAME = resolveTenantHostname();
 
 let registroProfileCache = null;
 let registroProfileCacheKey = "";
 let registroSuggestedUsername = "";
+let tenantConfig = null;
 
 function getIntentosData() {
   try {
@@ -160,6 +171,15 @@ async function findAvailableUsername(baseUsername, idEmployee) {
   return prefixed;
 }
 
+function buildTenantAwareMessage(errorData) {
+  const suggestedUrl = errorData?.suggestedTenant?.publicUrl;
+  if (suggestedUrl) {
+    return `${errorData.message || "Tu usuario no pertenece a esta liga."} Liga sugerida: ${suggestedUrl}`;
+  }
+
+  return errorData?.message || "Error de comunicacion con el servidor.";
+}
+
 async function fetchApi(path, body) {
   let response;
   try {
@@ -168,7 +188,10 @@ async function fetchApi(path, body) {
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(body)
+      body: JSON.stringify({
+        ...(body || {}),
+        hostname: TENANT_HOSTNAME
+      })
     });
   } catch {
     throw new Error("No fue posible conectar con el servidor.");
@@ -176,10 +199,72 @@ async function fetchApi(path, body) {
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !data.ok) {
-    throw new Error(data.message || "Error de comunicación con el servidor.");
+    throw new Error(buildTenantAwareMessage(data));
   }
 
   return data;
+}
+
+async function fetchTenantConfig() {
+  const url = new URL(`${API_BASE_URL}/public/tenant-config`);
+  url.searchParams.set("hostname", TENANT_HOSTNAME);
+
+  const response = await fetch(url.toString());
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok || !data.ok) {
+    throw new Error(data.message || "No fue posible cargar la configuracion de la liga.");
+  }
+
+  return data;
+}
+
+function applyTenantBranding(tenant) {
+  const titleEl = document.getElementById("tenant-title");
+  const subtitleEl = document.getElementById("tenant-subtitle");
+  const captionEl = document.getElementById("tenant-caption");
+  const logoWrapEl = document.getElementById("tenant-logo-wrap");
+  const logoEl = document.getElementById("tenant-logo");
+
+  if (!tenant) {
+    document.title = "Quiniela Mundialista 2026";
+    if (titleEl) titleEl.textContent = "Quiniela Mundialista";
+    if (subtitleEl) subtitleEl.textContent = "Copa Mundial de la FIFA 2026";
+    if (captionEl) {
+      captionEl.hidden = true;
+      captionEl.textContent = "";
+    }
+    if (logoWrapEl) logoWrapEl.hidden = true;
+    return;
+  }
+
+  tenantConfig = tenant;
+  document.title = tenant.loginTitle || tenant.brandName || "Quiniela Mundialista 2026";
+  if (titleEl) titleEl.textContent = tenant.loginTitle || tenant.brandName || "Quiniela Mundialista";
+  if (subtitleEl) subtitleEl.textContent = tenant.loginSubtitle || "Ingresa con tu usuario de intranet";
+
+  if (captionEl) {
+    captionEl.hidden = false;
+    captionEl.textContent = tenant.primaryHostname || TENANT_HOSTNAME;
+  }
+
+  if (logoWrapEl && logoEl && tenant.logoUrl) {
+    logoWrapEl.hidden = false;
+    logoEl.src = tenant.logoUrl;
+    logoEl.alt = tenant.brandName ? `Logo ${tenant.brandName}` : "Logo de la liga";
+  } else if (logoWrapEl) {
+    logoWrapEl.hidden = true;
+  }
+}
+
+async function initTenantBranding() {
+  try {
+    const data = await fetchTenantConfig();
+    applyTenantBranding(data.tenant || null);
+  } catch (error) {
+    console.warn(error);
+    applyTenantBranding(null);
+  }
 }
 
 async function prefillRegistrationProfile(force = false) {
@@ -243,6 +328,9 @@ function buildPlayerPayload({ profile, usuario, passwordHash, authMode }) {
     idPerson: profile.idPerson,
     idUser: profile.idUser || null,
     intranetUsername: profile.username || null,
+    tenantId: profile.tenant?.tenantId ?? null,
+    tenantHost: profile.tenant?.primaryHostname ?? null,
+    tenantBrandName: profile.tenant?.brandName ?? null,
     employeeStatus: profile.employeeStatus ?? null,
     userStatus: profile.userStatus ?? null,
     countryId: profile.country?.id ?? null,
@@ -272,15 +360,48 @@ async function ensureIntranetPlayer(profile, loginUsername) {
     const snap = await tx.get(docRef);
     if (snap.exists()) {
       nombre = snap.data().nombre || nombre;
+      tx.set(
+        docRef,
+        {
+          authMode: "intranet",
+          idEmployee: profile.idEmployee,
+          idPerson: profile.idPerson,
+          idUser: profile.idUser || null,
+          intranetUsername: profile.username || loginUsername,
+          tenantId: profile.tenant?.tenantId ?? null,
+          tenantHost: profile.tenant?.primaryHostname ?? null,
+          tenantBrandName: profile.tenant?.brandName ?? null,
+          employeeStatus: profile.employeeStatus ?? null,
+          userStatus: profile.userStatus ?? null,
+          countryId: profile.country?.id ?? null,
+          countryName: profile.country?.name ?? null,
+          countryCode: profile.country?.code ?? null,
+          businessUnitId: profile.businessUnit?.id ?? null,
+          businessUnitName: profile.businessUnit?.name ?? null,
+          businessUnitCode: profile.businessUnit?.code ?? null,
+          branchId: profile.branch?.id ?? null,
+          branchBusinessName: profile.branch?.businessName ?? null,
+          branchLegalName: profile.branch?.legalName ?? null,
+          departmentId: profile.department?.id ?? null,
+          departmentName: profile.department?.name ?? null,
+          positionId: profile.position?.id ?? null,
+          positionName: profile.position?.name ?? null,
+          ultimoAccesoIntranet: serverTimestamp()
+        },
+        { merge: true }
+      );
       return;
     }
 
-    tx.set(docRef, buildPlayerPayload({
-      profile,
-      usuario: profile.username || loginUsername,
-      passwordHash: placeholderHash,
-      authMode: "intranet"
-    }));
+    tx.set(
+      docRef,
+      buildPlayerPayload({
+        profile,
+        usuario: profile.username || loginUsername,
+        passwordHash: placeholderHash,
+        authMode: "intranet"
+      })
+    );
   });
 
   return {
@@ -308,12 +429,15 @@ async function registrarJugadorManual(profile, usuario, passHash) {
       throw { code: "usuario_tomado" };
     }
 
-    tx.set(docRef, buildPlayerPayload({
-      profile,
-      usuario,
-      passwordHash: passHash,
-      authMode: "manual"
-    }));
+    tx.set(
+      docRef,
+      buildPlayerPayload({
+        profile,
+        usuario,
+        passwordHash: passHash,
+        authMode: "manual"
+      })
+    );
   });
 
   return {
@@ -347,10 +471,13 @@ async function loginManual(usuarioInput, passHash) {
   }
 
   if (esMigracion || !jugador.usuario) {
-    localStorage.setItem("migracion_pendiente", JSON.stringify({
-      id: docJugador.id,
-      nombre: jugador.nombre
-    }));
+    localStorage.setItem(
+      "migracion_pendiente",
+      JSON.stringify({
+        id: docJugador.id,
+        nombre: jugador.nombre
+      })
+    );
 
     return { ok: false, reason: "migration" };
   }
@@ -364,7 +491,7 @@ async function loginManual(usuarioInput, passHash) {
   };
 }
 
-window.switchTab = function(tab) {
+window.switchTab = function (tab) {
   hideAlert();
   const isRegister = tab === "register";
   document.getElementById("form-register").style.display = isRegister ? "block" : "none";
@@ -373,7 +500,7 @@ window.switchTab = function(tab) {
   document.getElementById("tab-login").classList.toggle("active", !isRegister);
 };
 
-window.prefillRegistroDesdeEmpleado = async function() {
+window.prefillRegistroDesdeEmpleado = async function () {
   hideAlert();
 
   try {
@@ -393,7 +520,7 @@ window.prefillRegistroDesdeEmpleado = async function() {
   }
 };
 
-window.registrar = async function() {
+window.registrar = async function () {
   const idEmployee = document.getElementById("reg-idemployee").value.trim();
   const usuario = document.getElementById("reg-usuario").value.trim().toLowerCase();
   const pass = document.getElementById("reg-pass").value;
@@ -428,7 +555,7 @@ window.registrar = async function() {
     const jugador = await registrarJugadorManual(profile, usuario, passHash);
 
     localStorage.setItem("jugador", JSON.stringify(jugador));
-    showAlert(`¡Bienvenido, ${jugador.nombre}! Redirigiendo...`, "success");
+    showAlert(`Bienvenido, ${jugador.nombre}. Redirigiendo...`, "success");
     setTimeout(() => {
       window.location.href = "predicciones.html";
     }, 1500);
@@ -445,7 +572,7 @@ window.registrar = async function() {
   }
 };
 
-window.iniciarSesion = async function() {
+window.iniciarSesion = async function () {
   const usuarioInput = document.getElementById("login-usuario").value.trim().toLowerCase();
   const pass = document.getElementById("login-pass").value;
 
@@ -474,7 +601,10 @@ window.iniciarSesion = async function() {
       localStorage.setItem("jugador", JSON.stringify(jugador));
       localStorage.setItem("quiniela_token", intranet.token);
       localStorage.setItem("quiniela_profile", JSON.stringify(intranet.profile));
-      showAlert(`¡Hola, ${jugador.nombre}! Redirigiendo...`, "success");
+      if (intranet.profile?.tenant) {
+        localStorage.setItem("quiniela_tenant", JSON.stringify(intranet.profile.tenant));
+      }
+      showAlert(`Hola, ${jugador.nombre}. Redirigiendo...`, "success");
       setTimeout(() => {
         window.location.href = "predicciones.html";
       }, 1500);
@@ -488,7 +618,7 @@ window.iniciarSesion = async function() {
         localStorage.removeItem("quiniela_token");
         localStorage.removeItem("quiniela_profile");
         localStorage.setItem("jugador", JSON.stringify(manual.jugador));
-        showAlert(`¡Hola de nuevo, ${manual.jugador.nombre}! Redirigiendo...`, "success");
+        showAlert(`Hola de nuevo, ${manual.jugador.nombre}. Redirigiendo...`, "success");
         setTimeout(() => {
           window.location.href = "predicciones.html";
         }, 1500);
@@ -496,7 +626,7 @@ window.iniciarSesion = async function() {
       }
 
       if (manual.reason === "migration") {
-        showAlert("¡Hola! Necesitas elegir un usuario. Redirigiendo...", "success");
+        showAlert("Necesitas elegir un usuario. Redirigiendo...", "success");
         setTimeout(() => {
           window.location.href = "elegir-usuario.html";
         }, 1500);
@@ -510,14 +640,18 @@ window.iniciarSesion = async function() {
     registrarIntentoFallido();
     const data = getIntentosData();
     const restantes = Math.max(0, MAX_INTENTOS - data.count);
-    const msgExtra = restantes > 0
-      ? ` (${restantes} intento${restantes !== 1 ? "s" : ""} restante${restantes !== 1 ? "s" : ""})`
-      : " - Bloqueado por 5 min";
+    const msgExtra =
+      restantes > 0
+        ? ` (${restantes} intento${restantes !== 1 ? "s" : ""} restante${restantes !== 1 ? "s" : ""})`
+        : " - Bloqueado por 5 min";
 
     if (String(e.message || "").includes("conectar con el servidor")) {
-      showAlert("No fue posible validar el acceso con intranet y tampoco se encontró un registro manual." + msgExtra, "error");
+      showAlert(
+        "No fue posible validar el acceso con intranet y tampoco se encontró un registro manual." + msgExtra,
+        "error"
+      );
     } else {
-      showAlert("Usuario o contraseña incorrectos." + msgExtra, "error");
+      showAlert((e.message || "Usuario o contraseña incorrectos.") + msgExtra, "error");
     }
 
     setLoading("btn-login", false);
@@ -537,3 +671,5 @@ document.getElementById("reg-idemployee")?.addEventListener("blur", () => {
   if (document.getElementById("form-register").style.display === "none") return;
   window.prefillRegistroDesdeEmpleado();
 });
+
+initTenantBranding();

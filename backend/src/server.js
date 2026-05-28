@@ -7,6 +7,7 @@ import {
   getManualRegistrationProfile,
   loginWithIntranetCredentials
 } from "./services/auth.service.js";
+import { getTenantConfigForHostname, normalizeHostname } from "./services/tenant.service.js";
 import { getWinnersReport } from "./services/winners.service.js";
 
 validateConfig();
@@ -16,6 +17,17 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+function getRequestedHostname(req) {
+  return normalizeHostname(
+    req.body?.hostname ||
+      req.query?.hostname ||
+      req.headers["x-tenant-host"] ||
+      req.headers["x-forwarded-host"] ||
+      req.headers.host ||
+      ""
+  );
+}
+
 app.get("/api/health", (_req, res) => {
   res.json({
     ok: true,
@@ -23,10 +35,21 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
-app.post("/api/auth/login", async (req, res) => {
+app.get("/api/public/tenant-config", (req, res) => {
+  res.json({
+    ok: true,
+    ...getTenantConfigForHostname(getRequestedHostname(req))
+  });
+});
+
+app.post("/api/auth/login", async (req, res, next) => {
   try {
     const { username, password } = req.body || {};
-    const result = await loginWithIntranetCredentials(username, password);
+    const result = await loginWithIntranetCredentials(
+      username,
+      password,
+      getRequestedHostname(req)
+    );
 
     res.json({
       ok: true,
@@ -34,27 +57,21 @@ app.post("/api/auth/login", async (req, res) => {
       profile: result.profile
     });
   } catch (error) {
-    res.status(401).json({
-      ok: false,
-      message: error.message || "No fue posible iniciar sesion."
-    });
+    next(error);
   }
 });
 
-app.post("/api/auth/manual-registration-profile", async (req, res) => {
+app.post("/api/auth/manual-registration-profile", async (req, res, next) => {
   try {
     const { idEmployee } = req.body || {};
-    const profile = await getManualRegistrationProfile(idEmployee);
+    const profile = await getManualRegistrationProfile(idEmployee, getRequestedHostname(req));
 
     res.json({
       ok: true,
       profile
     });
   } catch (error) {
-    res.status(400).json({
-      ok: false,
-      message: error.message || "No fue posible validar el registro manual."
-    });
+    next(error);
   }
 });
 
@@ -89,9 +106,11 @@ app.get("/api/admin/winners", requireFirebaseAdmin, async (req, res, next) => {
 
 app.use((err, _req, res, _next) => {
   console.error(err);
-  res.status(500).json({
+  res.status(err.statusCode || 500).json({
     ok: false,
-    message: "Error interno del servidor."
+    message: err.message || "Error interno del servidor.",
+    code: err.code || "INTERNAL_ERROR",
+    suggestedTenant: err.suggestedTenant || null
   });
 });
 
