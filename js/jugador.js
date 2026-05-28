@@ -44,7 +44,6 @@ const TENANT_HOSTNAME = resolveTenantHostname();
 let registroProfileCache = null;
 let registroProfileCacheKey = "";
 let registroSuggestedUsername = "";
-let tenantConfig = null;
 
 function getIntentosData() {
   try {
@@ -238,7 +237,6 @@ function applyTenantBranding(tenant) {
     return;
   }
 
-  tenantConfig = tenant;
   document.title = tenant.loginTitle || tenant.brandName || "Quiniela Mundialista 2026";
   if (titleEl) titleEl.textContent = tenant.loginTitle || tenant.brandName || "Quiniela Mundialista";
   if (subtitleEl) subtitleEl.textContent = tenant.loginSubtitle || "Ingresa con tu usuario de intranet";

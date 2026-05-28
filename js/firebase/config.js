@@ -1,24 +1,15 @@
-// js/firebase/config.js
-
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.7.1/firebase-app.js";
+import { getFirestore } from "https://www.gstatic.com/firebasejs/11.7.1/firebase-firestore.js";
+import { getAuth } from "https://www.gstatic.com/firebasejs/11.7.1/firebase-auth.js";
 
-import {
-  getFirestore
-} from "https://www.gstatic.com/firebasejs/11.7.1/firebase-firestore.js";
-
-import {
-  getAuth
-} from "https://www.gstatic.com/firebasejs/11.7.1/firebase-auth.js";
-
-// ── CONFIG FIREBASE ──
 const firebaseConfig = {
-  apiKey:            "AIzaSyBkOqWfEpPNDun1jHJNV0g1creQAUCdgMo",
-  authDomain:        "quiniela-mundialista-202-bff2f.firebaseapp.com",
-  projectId:         "quiniela-mundialista-202-bff2f",
-  storageBucket:     "quiniela-mundialista-202-bff2f.firebasestorage.app",
-  messagingSenderId: "366645558738",
-  appId:             "1:366645558738:web:82c13047ea5151f6f2dc0b"
-};
+  apiKey: "AIzaSyBmn1Hu69KrWM33dlhzLr3q6oDRwybiHeU",
+  authDomain: "quiniela-mundialista-746ab.firebaseapp.com",
+  projectId: "quiniela-mundialista-746ab",
+  storageBucket: "quiniela-mundialista-746ab.firebasestorage.app",
+  messagingSenderId: "720496448416",
+  appId: "1:720496448416:web:167b169f30ca848f6e8ac5"
+}
 
 const app = initializeApp(firebaseConfig);
 
