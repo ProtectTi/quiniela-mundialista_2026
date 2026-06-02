@@ -204,10 +204,21 @@ function buildContext(filters, labels) {
 }
 
 export async function getWinnersReport(rawFilters = {}, options = {}) {
-  const { forceRefresh = false } = options;
+  const { forceRefresh = false, tenantFilter = null } = options;
   const cached = await getCachedUniverse(forceRefresh);
   const initialFilters = normalizeFilters(rawFilters);
-  const universe = cached.universe;
+
+  // Filtra el universo por tenant antes de cualquier otra cosa
+  let universe = cached.universe;
+  if (tenantFilter) {
+    universe = universe.filter(row => {
+      if (tenantFilter.countryId && normalizeId(row.countryId) !== normalizeId(tenantFilter.countryId)) return false;
+      if (tenantFilter.businessUnitIds?.length > 0) {
+        if (!tenantFilter.businessUnitIds.map(String).includes(normalizeId(row.businessUnitId))) return false;
+      }
+      return true;
+    });
+  }
 
   const countryOptions = buildOptions(universe, "countryId", "countryName");
   const appliedFilters = { ...initialFilters };
@@ -219,26 +230,16 @@ export async function getWinnersReport(rawFilters = {}, options = {}) {
     ? universe.filter(row => normalizeId(row.countryId) === appliedFilters.countryId)
     : universe;
 
-  const businessUnitOptions = buildOptions(
-    universeByCountry,
-    "businessUnitId",
-    "businessUnitName"
-  );
+  const businessUnitOptions = buildOptions(universeByCountry, "businessUnitId", "businessUnitName");
   if (!hasOption(businessUnitOptions, appliedFilters.businessUnitId)) {
     appliedFilters.businessUnitId = "";
   }
 
   const universeByBusinessUnit = appliedFilters.businessUnitId
-    ? universeByCountry.filter(
-        row => normalizeId(row.businessUnitId) === appliedFilters.businessUnitId
-      )
+    ? universeByCountry.filter(row => normalizeId(row.businessUnitId) === appliedFilters.businessUnitId)
     : universeByCountry;
 
-  const branchOptions = buildOptions(
-    universeByBusinessUnit,
-    "branchId",
-    "branchBusinessName"
-  );
+  const branchOptions = buildOptions(universeByBusinessUnit, "branchId", "branchBusinessName");
   if (!hasOption(branchOptions, appliedFilters.branchId)) {
     appliedFilters.branchId = "";
   }
@@ -255,12 +256,9 @@ export async function getWinnersReport(rawFilters = {}, options = {}) {
       : [];
 
   const selectedLabels = {
-    country:
-      countryOptions.find(item => item.value === appliedFilters.countryId)?.label || "",
-    businessUnit:
-      businessUnitOptions.find(item => item.value === appliedFilters.businessUnitId)?.label || "",
-    branch:
-      branchOptions.find(item => item.value === appliedFilters.branchId)?.label || ""
+    country: countryOptions.find(item => item.value === appliedFilters.countryId)?.label || "",
+    businessUnit: businessUnitOptions.find(item => item.value === appliedFilters.businessUnitId)?.label || "",
+    branch: branchOptions.find(item => item.value === appliedFilters.branchId)?.label || ""
   };
 
   return {

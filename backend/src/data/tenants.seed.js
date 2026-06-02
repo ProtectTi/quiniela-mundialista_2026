@@ -12,10 +12,10 @@ export const TENANT_SEED = [
     countryName: "MEXICO",
     businessUnitIds: [],
     brandName: "Caprepa Mexico",
-    loginTitle: "Quiniela Mundialista Mexico",
+    loginTitle: "Quiniela Mundialista Caprepa",
     loginSubtitle: "Ingresa con tu usuario de intranet",
     hostnames: ["mundial.caprepa.com"],
-    logoUrl: "img/logo.webp"
+    logoUrl: assetUrl("img/tenants/logo-caprepa.png")
   },
   {
     tenantId: "presico_co",

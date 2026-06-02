@@ -237,7 +237,7 @@ function cargarDashboard() {
   detenerDashboardAdminRealtime();
 
   unsubscribeDashboardAdmin.push(
-    onSnapshot(collection(db, 'jugadores'), programarRenderDashboardAdmin)
+    onSnapshot(query(collection(db, 'jugadores'), where('tenantHost', '==', window.location.hostname)), programarRenderDashboardAdmin)
   );
 
   unsubscribeDashboardAdmin.push(
@@ -273,7 +273,7 @@ async function renderDashboardAdminRealtime() {
     };
 
     const [jugSnap, predSnap, resJ1, resJ2, resJ3, elimSnap] = await Promise.all([
-      getDocs(collection(db, 'jugadores')),
+      getDocs(query(collection(db, 'jugadores'), where('tenantHost', '==', window.location.hostname))),
       getDocs(collection(db, 'predicciones')),
       getDocs(query(collection(db, 'resultados'), where('jornada', '==', 'jornada1'))),
       getDocs(query(collection(db, 'resultados'), where('jornada', '==', 'jornada2'))),
@@ -2454,7 +2454,7 @@ window.cargarPosiciones = function() {
   `;
 
   unsubscribePosicionesAdmin.push(
-    onSnapshot(collection(db, 'jugadores'), programarRenderPosicionesAdmin)
+    onSnapshot(query(collection(db, 'jugadores'), where('tenantHost', '==', window.location.hostname)), programarRenderPosicionesAdmin)
   );
 
   unsubscribePosicionesAdmin.push(
@@ -2475,11 +2475,14 @@ window.cargarPosiciones = function() {
 async function renderPosicionesAdminRealtime() {
   const tbody = document.getElementById('posiciones-tbody');
 
+  // Obtener tenant del dominio actual
+  const tenantHost = window.location.hostname;
+
   if (!tbody) return;
 
   try {
     const [jugSnap, predSnap, resSnap, elimSnap] = await Promise.all([
-      getDocs(collection(db, 'jugadores')),
+      getDocs(query(collection(db, 'jugadores'), where('tenantHost', '==', window.location.hostname))),
       getDocs(collection(db, 'predicciones')),
       getDocs(collection(db, 'resultados')),
       getDocs(collection(db, 'eliminatorias'))
@@ -3017,7 +3020,7 @@ window.cargarGanadores = function() {
   `;
 
   unsubscribeGanadoresAdmin.push(
-    onSnapshot(collection(db, 'jugadores'), window.programarRenderGanadoresAdmin)
+    onSnapshot(query(collection(db, 'jugadores'), where('tenantHost', '==', window.location.hostname)), window.programarRenderGanadoresAdmin)
   );
 
   unsubscribeGanadoresAdmin.push(
@@ -3044,7 +3047,7 @@ async function renderGanadoresAdminRealtime() {
 
   try {
     const [jugSnap, predSnap, resSnap, elimSnap] = await Promise.all([
-      getDocs(collection(db, 'jugadores')),
+      getDocs(query(collection(db, 'jugadores'), where('tenantHost', '==', window.location.hostname))),
       getDocs(collection(db, 'predicciones')),
       getDocs(collection(db, 'resultados')),
       getDocs(collection(db, 'eliminatorias'))
@@ -3323,7 +3326,7 @@ window.cargarJugadores = function() {
   // ── LISTENERS ──
   unsubscribeJugadoresAdmin.push(
     onSnapshot(
-      collection(db, 'jugadores'),
+      query(collection(db, 'jugadores'), where('tenantHost', '==', window.location.hostname)),
       programarRenderJugadoresAdmin
     )
   );
@@ -3365,7 +3368,7 @@ async function renderJugadoresAdminRealtime() {
       resSnap,
       elimSnap
     ] = await Promise.all([
-      getDocs(collection(db, 'jugadores')),
+      getDocs(query(collection(db, 'jugadores'), where('tenantHost', '==', window.location.hostname))),
       getDocs(collection(db, 'predicciones')),
       getDocs(collection(db, 'resultados')),
       getDocs(collection(db, 'eliminatorias'))

@@ -1,17 +1,7 @@
-FROM node:20-alpine
-
+FROM node:20-slim
 WORKDIR /app
-
 COPY package*.json ./
-RUN npm ci --omit=dev
-
-COPY src ./src
-COPY .env.example ./.env.example
-COPY README.md ./README.md
-
-ENV NODE_ENV=production
-ENV PORT=8080
-
+RUN npm install --omit=dev
+COPY . .
 EXPOSE 8080
-
 CMD ["node", "src/server.js"]

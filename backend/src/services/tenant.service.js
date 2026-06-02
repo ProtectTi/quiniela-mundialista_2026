@@ -73,10 +73,10 @@ function matchesTenant(profile, tenant) {
 
 function buildMismatchMessage(suggestedTenant) {
   if (suggestedTenant?.publicUrl) {
-    return `Tu usuario no pertenece a esta liga. Usa ${suggestedTenant.publicUrl}.`;
+    return 'Usuario o Contraseña Inválidos.';
   }
 
-  return "Tu usuario no pertenece a una liga habilitada para esta quiniela.";
+  return "Usuario o Contraseña Inválidos.";
 }
 
 export function listConfiguredTenants() {

@@ -91,8 +91,12 @@ app.post("/api/auth/logout", requireAuth, (_req, res) => {
 
 app.get("/api/admin/winners", requireFirebaseAdmin, async (req, res, next) => {
   try {
+    const hostname = getRequestedHostname(req);
+    const tenantConfig = getTenantConfigForHostname(hostname);
+
     const report = await getWinnersReport(req.query, {
-      forceRefresh: req.query.refresh === "1"
+      forceRefresh: req.query.refresh === "1",
+      tenantFilter: tenantConfig?.tenant || null
     });
 
     res.json({

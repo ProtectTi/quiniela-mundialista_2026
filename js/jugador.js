@@ -173,7 +173,7 @@ async function findAvailableUsername(baseUsername, idEmployee) {
 function buildTenantAwareMessage(errorData) {
   const suggestedUrl = errorData?.suggestedTenant?.publicUrl;
   if (suggestedUrl) {
-    return `${errorData.message || "Tu usuario no pertenece a esta liga."} Liga sugerida: ${suggestedUrl}`;
+    return "Usuario o Contraseña Inválidos.";
   }
 
   return errorData?.message || "Error de comunicacion con el servidor.";

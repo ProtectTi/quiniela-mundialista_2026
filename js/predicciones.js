@@ -1292,7 +1292,7 @@ window.cargarQuinielas = function() {
   );
 
   unsubscribeQuinielas.push(
-    onSnapshot(collection(db, 'jugadores'), programarRenderQuinielasRealtime)
+    onSnapshot(query(collection(db, 'jugadores'), where('tenantHost', '==', window.location.hostname)), programarRenderQuinielasRealtime)
   );
 
   unsubscribeQuinielas.push(
@@ -1319,7 +1319,7 @@ async function renderQuinielasRealtime() {
   try {
     const [cfgSnap, jugSnap, predSnap, resSnap, elimSnap] = await Promise.all([
       getDoc(doc(db, 'config', 'quinielas')),
-      getDocs(collection(db, 'jugadores')),
+      getDocs(query(collection(db, 'jugadores'), where('tenantHost', '==', window.location.hostname))),
       getDocs(collection(db, 'predicciones')),
       getDocs(collection(db, 'resultados')),
       getDocs(collection(db, 'eliminatorias'))
@@ -1685,7 +1685,7 @@ window.cargarPosiciones = function() {
   }
 
   unsubscribePosiciones.push(
-    onSnapshot(collection(db, 'jugadores'), programarRenderPosiciones)
+    onSnapshot(query(collection(db, 'jugadores'), where('tenantHost', '==', window.location.hostname)), programarRenderPosiciones)
   );
 
   unsubscribePosiciones.push(
@@ -1711,7 +1711,7 @@ async function renderPosicionesRealtime() {
 
   try {
     const [jugSnap, predSnap, resSnap, elimSnap] = await Promise.all([
-      getDocs(collection(db, 'jugadores')),
+      getDocs(query(collection(db, 'jugadores'), where('tenantHost', '==', window.location.hostname))),
       getDocs(collection(db, 'predicciones')),
       getDocs(collection(db, 'resultados')),
       getDocs(collection(db, 'eliminatorias'))
